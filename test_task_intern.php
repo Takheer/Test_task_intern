@@ -13,16 +13,19 @@
     которая задается изначальными запросами.
 */
 
+error_reporting(E_ALL);
 //устанавливаем соединение с базой данных
-$dbh = new PDO('mysql:host=localhost;dbname=test;charset=UTF8', 'root', 'y@3#XUC5');
+$password = file("/Library/WebServer/Documents/password.cnf", FILE_IGNORE_NEW_LINES)[0];
+$dbh = new PDO('mysql:host=localhost;dbname=test;charset=UTF8', 'root', $password);
 
 //создаем таблицу авторов
-$authorsTableName = 'authors';
+// Убрал $authorTableName и $booksTableName. Всё равно названия таблиц скорее всего не поменяются,
+// зато читаемость кода стала лучше в разы
 $authorsTableSql = <<<EOL
-create table if not exists {$authorsTableName}
+CREATE TABLE IF NOT EXISTS authors
 (
-    id int(11) not null auto_increment,
-    name varchar(255) not null,
+    id INT(11) NOT NULL AUTO_INCREMENT,
+    name VARCHAR(255) NOT NULL ,
     PRIMARY KEY(id)
 ) CHARACTER SET utf8 COLLATE utf8_general_ci;
 EOL;
@@ -32,21 +35,20 @@ if ($dbh->exec($authorsTableSql) === false) {
 
 //очищаем старые данные и добавляем несколько авторов для проверки
 // Чтобы при очистке старых данных он сбрасывался, нужно вместо DELETE делаать TRUNCATE
-$dbh->exec('TRUNCATE TABLE ' . $authorsTableName);
+$dbh->exec('TRUNCATE TABLE authors');
 // Тогда и незачем писать id вручную -- auto_increment же
-$dbh->exec('insert into ' . $authorsTableName . ' (name) values ("А. Азимов")');
-$dbh->exec('insert into ' . $authorsTableName . ' (name) values ("Р. Брэдбери")');
+$dbh->exec('INSERT INTO authors (name) VALUE ("А. Азимов")');
+$dbh->exec('INSERT INTO authors (name) VALUE ("Р. Брэдбери")');
 
 //создаем таблицу с книгами
-$booksTableName = 'books';
 $booksTableSql = <<<EOL
-create table if not exists {$booksTableName}
+CREATE TABLE IF NOT EXISTS books
 (
-    id int(11) not null auto_increment,
-    author_id int(11) not null,
-    title varchar(255) not null,
-    isbn varchar(255) not null,
-    is_in_stock int(1) not null,
+    id INT(11) NOT NULL AUTO_INCREMENT,
+    author_id INT(11) NOT NULL ,
+    title VARCHAR(255) NOT NULL,
+    isbn VARCHAR(255) NOT NULL,
+    is_in_stock INT(1) NOT NULL,
     PRIMARY KEY(id)
 ) CHARACTER SET utf8 COLLATE utf8_general_ci;
 EOL;
@@ -55,9 +57,9 @@ if ($dbh->exec($booksTableSql) === false) {
 }
 
 //очищаем старые данные и добавляем несколько книг для проверки
-$dbh->exec('delete from ' . $booksTableName);
-$dbh->exec('insert into ' . $booksTableName . ' (author_id, title, isbn, is_in_stock) values (1, "Я, робот", "5-699-13798-5", 1)');
-$dbh->exec('insert into ' . $booksTableName . ' (author_id, title, isbn, is_in_stock) values (2, "Вино из одуванчиков", "978-5-699-37382-6", 0)');
+$dbh->exec('TRUNCATE TABLE books');
+$dbh->exec('INSERT INTO books (author_id, title, isbn, is_in_stock) VALUES (1, "Я, робот", "5-699-13798-5", 1)');
+$dbh->exec('INSERT INTO books (author_id, title, isbn, is_in_stock) VALUES (2, "Вино из одуванчиков", "978-5-699-37382-6", 0)');
 ?>
 
 
@@ -65,43 +67,48 @@ $dbh->exec('insert into ' . $booksTableName . ' (author_id, title, isbn, is_in_s
 // MySQL 8.0.16 (legacy authentication), PHP 7.1.19
 // решение в этом блоке
 
-// добавляет в html-документ строки таблицы
-function getTableRows($dbh, $booksTableName, $authorsTableName){
-    $joinTablesSql = <<<EOL
+// делает запрос в базу данных и возвращает содержимое в виде объекта PDOStatement
+function getTableRowsFromDB($dbh){
+    $jointTablesSql = <<<EOL
     SELECT *
     FROM
-        {$booksTableName}
+        books
         LEFT OUTER JOIN 
-        {$authorsTableName}
-            ON {$booksTableName}.author_id = {$authorsTableName}.id;
+        authors
+            ON books.author_id = authors.id;
 EOL;
 
-    $result = "";
-    foreach ($dbh->query($joinTablesSql) as $row) {
-        $isInStock = $row['is_in_stock'] ? "Да" : "Нет";
-        // возможно будет полезным сделать так на случай, если автора этой книги не окажется в таблице авторов.
-        // не знаю, правда, насколько возможен такой случай
-        $name = $row['name'] ?? "Н/Д";
-
-        $result .=  "<tr>" .
-            "<td>{$row['title']}</td>" .
-            "<td>{$row['isbn']}</td>" .
-            "<td>{$name}</td>" .
-            "<td>{$isInStock}</td>" .
-            "</tr>";
-    }
-    return $result;
+    return $dbh->query($jointTablesSql);
 }
-
-$tableRows = getTableRows($dbh, $booksTableName, $authorsTableName);
 ?>
 
+
+<html>
+<head>
+    <style>
+        table, th, td{
+            border: 1px solid grey;
+            border-collapse: collapse;
+            padding: 5px;
+        }
+    </style>
+</head>
+<body>
 <table>
     <tr>
-        <th class="table">Название</th>
-        <th class="table">ISBN</th>
-        <th class="table">Автор</th>
-        <th class="table">В наличии</th>
+        <th>Название</th>
+        <th>ISBN</th>
+        <th>Автор</th>
+        <th>В наличии</th>
     </tr>
-    <?=$tableRows?>
+    <?php foreach (getTableRowsFromDB($dbh) as $row) : ?>
+    <tr>
+        <td><?php echo $row['title'] ?></td>
+        <td><?php echo $row['isbn'] ?></td></td>
+        <td><?php echo $row['name'] ?? "Н/Д" ?></td>
+        <td><?php echo $row['is_in_stock'] ? "Да" : "Нет" ?></td>
+    </tr>
+    <?php endforeach; ?>
 </table>
+</body>
+</html>
